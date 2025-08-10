@@ -1,11 +1,11 @@
-
 import streamlit as st
 import pandas as pd
 import pdfplumber
 import re
 import io
+import os
 
-# ==== 1. Topic Groupings ====
+# ==== CONSTANTS ====
 ISSUE_TOPICS = {
     "Divorce Grounds": [
         "talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown",
@@ -38,7 +38,9 @@ SHORTFORM_MAP = {
     "Women’s Charter": "WC",
     "Women's Charter": "WC"
 }
-# ==== Helper functions ====
+DATA_PATH = "case_data.pkl"
+
+# ==== HELPER FUNCTIONS ====
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -164,9 +166,9 @@ def extract_quranic_verses_block(text):
             verses.append(f"{surah}:{verse}")
     return sorted(set(verses))
 
-def extract_main_body(text): return text
+def extract_main_body(text):
+    return text
 
-# ==== Search functions ====
 def normalize(s):
     return re.sub(r'[\s\(\)\[\]\.,:\-]', '', str(s).lower())
 
@@ -203,89 +205,98 @@ def search_quranic(df, verse_query):
             results.append(row['Case Name'])
     return sorted(set(results))
 
-# ==== Streamlit UI ====
+# ==== SAVE/LOAD ====
+def save_df(df):
+    df.to_pickle(DATA_PATH)
+
+def load_df():
+    if os.path.exists(DATA_PATH):
+        return pd.read_pickle(DATA_PATH)
+    else:
+        return None
+
+# ==== STREAMLIT APP ====
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
-st.markdown("""
-Upload PDF case judgements, extract searchable database, and filter by legislation or Quranic verse.  
-**All processing is local and private.**
-""")
 
-uploaded_files = st.file_uploader("Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
-records = []
+st.markdown("""Upload PDF judgements to update the database.  
+If no uploads, you can **search** previously processed cases instantly.""")
 
-if uploaded_files:
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    for idx, uploaded_file in enumerate(uploaded_files):
-        status_text.text(f"Processing {uploaded_file.name}...")
-        try:
-            with pdfplumber.open(uploaded_file) as pdf:
-                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
-            case_name = extract_case_name_first_block(text, uploaded_file.name)
-            year = extract_year(text)
-            headnotes = extract_headnotes(text)
-            topic_groups = assign_topic_groups(headnotes)
-            legislation = extract_legislation_block(text)
-            cases_referred = extract_cases_referred_block(text)
-            quranic_verses = extract_quranic_verses_block(text)
-            main_body = extract_main_body(text)
-            records.append({
-                "Case Name": case_name,
-                "Year": year,
-                "Issues (headnotes)": headnotes,
-                "Topic Groups": topic_groups,
-                "Legislation referred": legislation,
-                "Cases referred to": cases_referred,
-                "Quranic verse(s) referred": quranic_verses,
-                "Main Body": main_body
-            })
-        except Exception as ex:
-            st.warning(f"Failed on {uploaded_file.name}: {ex}")
-        progress_bar.progress(int(100*(idx+1)/len(uploaded_files)))
-    status_text.text("Done.")
-    df = pd.DataFrame(records)
-    st.success(f"Processed {len(df)} cases.")
+df = load_df()
+
+upload_section = st.expander("Upload PDFs (to update database)", expanded=(df is None))
+with upload_section:
+    uploaded_files = st.file_uploader(
+        "Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
+
+    if uploaded_files:
+        records = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        for idx, uploaded_file in enumerate(uploaded_files):
+            status_text.text(f"Processing {uploaded_file.name}...")
+            try:
+                with pdfplumber.open(uploaded_file) as pdf:
+                    text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+                case_name = extract_case_name_first_block(text, uploaded_file.name)
+                year = extract_year(text)
+                headnotes = extract_headnotes(text)
+                topic_groups = assign_topic_groups(headnotes)
+                legislation = extract_legislation_block(text)
+                cases_referred = extract_cases_referred_block(text)
+                quranic_verses = extract_quranic_verses_block(text)
+                main_body = extract_main_body(text)
+                records.append({
+                    "Case Name": case_name,
+                    "Year": year,
+                    "Issues (headnotes)": headnotes,
+                    "Topic Groups": topic_groups,
+                    "Legislation referred": legislation,
+                    "Cases referred to": cases_referred,
+                    "Quranic verse(s) referred": quranic_verses,
+                    "Main Body": main_body
+                })
+            except Exception as ex:
+                st.warning(f"Failed on {uploaded_file.name}: {ex}")
+            progress_bar.progress(int(100*(idx+1)/len(uploaded_files)))
+        df = pd.DataFrame(records)
+        save_df(df)
+        st.success(f"Processed and saved {len(df)} cases.")
+
+df = load_df()
+if df is not None and not df.empty:
     st.dataframe(df[["Case Name", "Year", "Topic Groups", "Legislation referred", "Quranic verse(s) referred"]])
 
-    # Download functionality
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
-    st.download_button("Download full case database (.xlsx)", data=excel_data.getvalue(),
+    st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
                       file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    st.markdown("### Search Cases By Legislation or Quranic Verse")
-
+    st.markdown("### Search Cases")
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("#### Legislation Section Search")
-        keywords = st.text_input("Act short-form or name (e.g. 'AMLA', 'Women's Charter')", "AMLA")
-        section = st.text_input("Section number or subsection (e.g. '52', '52(8)')", "")
+        st.markdown("#### By Legislation Section")
+        keywords = st.text_input("Act name/short form", "AMLA")
+        section = st.text_input("Section (e.g. 52 or 52(8))", "")
         if section:
-            if "(" in section:  # subsection: s 52(8) logic
+            if "(" in section:
                 results = search_legislation_exact_subsection(df, keywords, section)
             else:
                 results = search_legislation_section_strict(df, keywords, section)
-            st.write(f"Cases referring to: **{keywords} s {section}**")
             st.write(results if results else "No matches found.")
-
     with col2:
-        st.markdown("#### Quranic Verse Search")
-        verse = st.text_input("Quranic Verse (format Surah:Verse, e.g. '2:282', '4:3')", "")
+        st.markdown("#### By Quranic Verse")
+        verse = st.text_input("Verse (Surah:Verse, e.g. 2:282)", "")
         if verse:
             results = search_quranic(df, verse)
-            st.write(f"Cases referring to: **Surah {verse}**")
             st.write(results if results else "No matches found.")
-
 else:
-    st.info("Please upload PDF files to begin.")
+    st.info("No database found. Please upload PDFs first.")
 
-# Optional: show a usage guide
 with st.expander("How to use this app"):
     st.markdown("""
-**1. Upload Syariah Appeal Board judgement PDFs** (e.g. those with Singapore Syariah Appeals Reports, SSAR).
-**2. Wait for processing.**
-**3. Search by legislation sections (AMLA, Women's Charter), or by Quranic verse.**
-**4. Download the extracted database for offline analysis.**
-*Note: the app does not store your files or data—everything runs locally in your browser or Python session.*
-    """)
+1. Upload Syariah Appeal Board judgement PDFs once to build/update the database.  
+2. When a database exists, search instantly without re-uploading.  
+3. Download the processed file for offline use.  
+*Note: All processing is local to the environment where the app is hosted.*
+""")
