@@ -4,34 +4,26 @@ import pdfplumber
 import re
 import io
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ================= Constants =================
 ISSUE_TOPICS = {
-    "Divorce Grounds": [
-        "talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown",
-        "judicial separation", "taklik", "pronouncement", "divorce",
-        "fault", "reconciliation", "nullity", "consent order", "bain", "rajii"
-    ],
-    "Matrimonial Asset Division": [
-        "division", "apportion", "matrimonial asset", "matrimonial property", "property",
-        "assets", "cpf", "hdb", "sale of flat", "valuation", "uplift", "refund", "ownership",
-        "net sale proceeds", "structured approach", "direct financial",
-        "indirect contribution", "asset pool"
-    ],
-    "Child Matters": [
-        "custody", "care and control", "access", "maintenance (child)", "parenting",
-        "joint custody", "variation of custody", "hadhanah", "wilayah",
-        "school", "accommodation", "child maintenance", "welfare",
-        "guardianship", "minor child", "children"
-    ],
-    "Jurisdiction": [
-        "jurisdiction", "forum", "appeal board powers", "court jurisdiction",
-        "s 35", "section 35", "s 526", "legal capacity", "variation", "procedural", "intervener"
-    ],
-    "Marriage": [
-        "marriage", "wali", "nikah", "consent", "registration",
-        "polygamy", "remarry", "solemnisation", "validation", "dissolution"
-    ]
+    "Divorce Grounds": ["talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown",
+                        "judicial separation", "taklik", "pronouncement", "divorce",
+                        "fault", "reconciliation", "nullity", "consent order", "bain", "rajii"],
+    "Matrimonial Asset Division": ["division", "apportion", "matrimonial asset", "matrimonial property", "property",
+                                   "assets", "cpf", "hdb", "sale of flat", "valuation", "uplift", "refund", "ownership",
+                                   "net sale proceeds", "structured approach", "direct financial",
+                                   "indirect contribution", "asset pool"],
+    "Child Matters": ["custody", "care and control", "access", "maintenance (child)", "parenting",
+                      "joint custody", "variation of custody", "hadhanah", "wilayah",
+                      "school", "accommodation", "child maintenance", "welfare",
+                      "guardianship", "minor child", "children"],
+    "Jurisdiction": ["jurisdiction", "forum", "appeal board powers", "court jurisdiction",
+                     "s 35", "section 35", "s 526", "legal capacity", "variation", "procedural", "intervener"],
+    "Marriage": ["marriage", "wali", "nikah", "consent", "registration",
+                 "polygamy", "remarry", "solemnisation", "validation", "dissolution"]
 }
 SHORTFORM_MAP = {
     "Administration of Muslim Law Act": "AMLA",
@@ -40,7 +32,7 @@ SHORTFORM_MAP = {
 }
 DATA_PATH = "case_data.pkl"
 
-# ================= Helper Functions (extraction + search) =================
+# ================= Extraction Functions =================
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -69,15 +61,15 @@ def extract_case_name_first_block(text, filename):
                 return line
             if line.startswith("Re ") and re.match(r"^Re [A-Z]{2,}$", line):
                 return line
-        return filename
+        return os.path.splitext(filename)[0]
     block = lines[start+1:start+12]
-    for j in range(len(block) - 2):
+    for j in range(len(block)-2):
         if re.match(r"^[A-Z]{2,}$", block[j]) and block[j+1].lower() == "v" and re.match(r"^[A-Z]{2,}$", block[j+2]):
             return f"{block[j]} v {block[j+2]}"
     for line in block:
         if re.match(r"^[A-Z]{2,} v [A-Z]{2,}$", line): return line
         if line.startswith("Re ") and re.match(r"^Re [A-Z]{2,}$", line): return line
-    return filename
+    return os.path.splitext(filename)[0]
 
 def extract_year(text):
     years = re.findall(r"(20\d{2}|19\d{2})", text)
@@ -169,31 +161,29 @@ def extract_quranic_verses_block(text):
 def extract_main_body(text):
     return text
 
+# ================= Search =================
 def normalize(s):
     return re.sub(r'[\s\(\)\[\]\.,:\-]', '', str(s).lower())
 
 def search_legislation_section_strict(df, keywords, section):
     section_clean = str(section)
-    pattern = re.compile(rf'(s|ss|section)\s*{re.escape(section_clean)}(\b|\()', re.IGNORECASE)
     keywords = [normalize(k) for k in ([keywords] if isinstance(keywords, str) else keywords)]
-    mask = df["Legislation referred"].apply(
-        lambda lst: any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst)
-    )
+    pattern = re.compile(rf'(s|ss|section)\s*{re.escape(section_clean)}(\b|\()', re.IGNORECASE)
+    mask = df["Legislation referred"].apply(lambda lst:
+        any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst))
     return sorted(df.loc[mask, "Case Name"])
 
 def search_legislation_exact_subsection(df, keywords, exact_subsection):
     pattern = re.compile(rf'(s|ss|section)\s*{re.escape(exact_subsection)}', re.IGNORECASE)
     keywords = [normalize(k) for k in ([keywords] if isinstance(keywords, str) else keywords)]
-    mask = df["Legislation referred"].apply(
-        lambda lst: any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst)
-    )
+    mask = df["Legislation referred"].apply(lambda lst:
+        any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst))
     return sorted(df.loc[mask, "Case Name"])
 
 def search_quranic(df, verse_query):
     verse_norm = normalize(verse_query)
-    mask = df["Quranic verse(s) referred"].apply(
-        lambda lst: any(verse_norm == normalize(v) for v in lst)
-    )
+    mask = df["Quranic verse(s) referred"].apply(lambda lst:
+        any(verse_norm == normalize(v) for v in lst))
     return sorted(df.loc[mask, "Case Name"])
 
 # ================= Save / Load / Clear =================
@@ -207,31 +197,34 @@ def load_df_cached():
     return None
 
 def clear_database():
-    if "df" in st.session_state:
-        st.session_state.df = None
     if os.path.exists(DATA_PATH):
         os.remove(DATA_PATH)
-    st.success("Database cleared. Please upload PDFs to create a new one.")
+    st.session_state.df = None
+    st.success("Database cleared.")
+    st.rerun()
 
-# ================= Streamlit App =================
+# ================ Streamlit App =================
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached()
-
 df = st.session_state.df
 
+# --- Database Management ---
 with st.expander("Database Management"):
     if st.button("Clear Database"):
         clear_database()
-        df = None  # local var reset for this rerun
 
+# --- Upload PDFs ---
 with st.expander("Upload PDFs (to update database)", expanded=(df is None)):
     uploaded_files = st.file_uploader("Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
     if uploaded_files:
         records = []
-        for uploaded_file in uploaded_files:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        for idx, uploaded_file in enumerate(uploaded_files):
+            status_text.text(f"Processing {uploaded_file.name}...")
             with pdfplumber.open(uploaded_file) as pdf:
                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
             case_name = extract_case_name_first_block(text, uploaded_file.name)
@@ -252,22 +245,45 @@ with st.expander("Upload PDFs (to update database)", expanded=(df is None)):
                 "Quranic verse(s) referred": quranic_verses,
                 "Main Body": main_body
             })
+            progress_bar.progress(int(100*(idx+1)/len(uploaded_files)))
+        status_text.text("Done.")
         save_df(pd.DataFrame(records))
-        st.session_state.df = load_df_cached()  # reload optimised
+        st.session_state.df = load_df_cached()
         df = st.session_state.df
         st.success(f"Processed and saved {len(df)} cases.")
 
+# --- Display / Search / Visualisations ---
 if df is not None and not df.empty:
     if st.checkbox("Show full database table"):
-        st.dataframe(df[["Case Name", "Year", "Topic Groups",
-                         "Legislation referred", "Quranic verse(s) referred"]])
+        st.dataframe(df)
 
+    # Download
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
     st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
-                       file_name="ssar_cases.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                       file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    # ======== Visualisations (from ipynb) ========
+    st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
+    count_data = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
+    plt.figure(figsize=(10,6))
+    sns.lineplot(data=count_data, x="Year", y="count", hue="Topic Groups", marker="o")
+    plt.title("Yearly Topic Group Trends: Number of Cases")
+    plt.grid(True)
+    st.pyplot(plt)
+
+    st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
+    prop_data = count_data.copy()
+    totals = prop_data.groupby("Year")["count"].transform("sum")
+    prop_data["proportion"] = prop_data["count"] / totals
+    plt.figure(figsize=(10,6))
+    sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
+    plt.title("Yearly Topic Group Trends: Proportion of Cases")
+    plt.grid(True)
+    st.pyplot(plt)
+
+    # ======== Search ========
+    st.subheader("🔍 Search Cases")
     col1, col2 = st.columns(2)
     with col1:
         keywords = st.text_input("Act name/short form", "AMLA")
