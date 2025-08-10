@@ -193,7 +193,7 @@ def search_quranic(df, verse_query):
         any(verse_norm == normalize(v) for v in lst))
     return sorted(df.loc[mask, "Case Name"])
 
-# ================= Save/Load with Cache =================
+# ================= Save/Load/Clear =================
 def save_df(df):
     df.to_pickle(DATA_PATH)
 
@@ -202,6 +202,14 @@ def load_df_cached():
     if os.path.exists(DATA_PATH):
         return pd.read_pickle(DATA_PATH)
     return None
+
+def clear_database():
+    """Clear both session and saved file."""
+    if "df" in st.session_state:
+        del st.session_state.df
+    if os.path.exists(DATA_PATH):
+        os.remove(DATA_PATH)
+    st.success("Database cleared. Upload PDFs to create a new one.")
 
 # ================= Streamlit App =================
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
@@ -212,6 +220,11 @@ if "df" not in st.session_state:
     st.session_state.df = load_df_cached()
 
 df = st.session_state.df
+
+# --- Database Management section ---
+with st.expander("Database Management"):
+    if st.button("Clear Database"):
+        clear_database()
 
 # --- Upload Section ---
 with st.expander("Upload PDFs (only if you want to update database)", expanded=(df is None)):
