@@ -1,4 +1,3 @@
-pip install streamlit pdfplumber pandas openpyxl
 
 import streamlit as st
 import pandas as pd
