@@ -5,7 +5,7 @@ import re
 import io
 import os
 
-# ==== CONSTANTS ====
+# ================= Constants =================
 ISSUE_TOPICS = {
     "Divorce Grounds": [
         "talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown",
@@ -40,7 +40,7 @@ SHORTFORM_MAP = {
 }
 DATA_PATH = "case_data.pkl"
 
-# ==== HELPER FUNCTIONS ====
+# ================= Helper Functions =================
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -173,111 +173,87 @@ def normalize(s):
     return re.sub(r'[\s\(\)\[\]\.,:\-]', '', str(s).lower())
 
 def search_legislation_section_strict(df, keywords, section):
-    results = []
     section_clean = str(section)
-    keywords = [normalize(k) for k in (keywords if isinstance(keywords, list) else [keywords])]
     pattern = re.compile(rf'(s|ss|section)\s*{re.escape(section_clean)}(\b|\()', re.IGNORECASE)
-    for _, row in df.iterrows():
-        for leg in row.get("Legislation referred", []):
-            if not any(k in normalize(leg) for k in keywords): continue
-            if pattern.search(leg):
-                results.append(row["Case Name"])
-                break
-    return sorted(set(results))
+    keywords = [normalize(k) for k in (keywords if isinstance(keywords, list) else [keywords])]
+    mask = df["Legislation referred"].apply(lambda lst:
+        any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst))
+    return sorted(df.loc[mask, "Case Name"])
 
 def search_legislation_exact_subsection(df, keywords, exact_subsection):
-    results = []
+    pattern = re.compile(rf'(s|ss|section)\s*{re.escape(exact_subsection)}', re.IGNORECASE)
     keywords = [normalize(k) for k in (keywords if isinstance(keywords, list) else [keywords])]
-    pattern = re.compile(rf'(s|ss|section)\s*{re.escape(exact_subsection)}(\b|\([a-zA-Z0-9]+\))?', re.IGNORECASE)
-    for _, row in df.iterrows():
-        for leg in row.get("Legislation referred", []):
-            if not any(k in normalize(leg) for k in keywords): continue
-            if pattern.search(leg):
-                results.append(row["Case Name"])
-                break
-    return sorted(set(results))
+    mask = df["Legislation referred"].apply(lambda lst:
+        any(any(k in normalize(leg) and pattern.search(leg) for k in keywords) for leg in lst))
+    return sorted(df.loc[mask, "Case Name"])
 
 def search_quranic(df, verse_query):
-    results = []
     verse_norm = normalize(verse_query)
-    for _, row in df.iterrows():
-        if any(verse_norm == normalize(v) for v in row.get("Quranic verse(s) referred", [])):
-            results.append(row['Case Name'])
-    return sorted(set(results))
+    mask = df["Quranic verse(s) referred"].apply(lambda lst:
+        any(verse_norm == normalize(v) for v in lst))
+    return sorted(df.loc[mask, "Case Name"])
 
-# ==== SAVE/LOAD ====
+# ================= Save/Load with Cache =================
 def save_df(df):
     df.to_pickle(DATA_PATH)
 
+@st.cache_data
 def load_df():
     if os.path.exists(DATA_PATH):
         return pd.read_pickle(DATA_PATH)
-    else:
-        return None
+    return None
 
-# ==== STREAMLIT APP ====
+# ================= Streamlit App =================
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
-st.markdown("""Upload PDF judgements to update the database.  
-If no uploads, you can **search** previously processed cases instantly.""")
-
 df = load_df()
 
-upload_section = st.expander("Upload PDFs (to update database)", expanded=(df is None))
-with upload_section:
-    uploaded_files = st.file_uploader(
-        "Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
-
+# --- Upload Section ---
+with st.expander("Upload PDFs (only if you want to update database)", expanded=(df is None)):
+    uploaded_files = st.file_uploader("Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
     if uploaded_files:
         records = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        for idx, uploaded_file in enumerate(uploaded_files):
-            status_text.text(f"Processing {uploaded_file.name}...")
-            try:
-                with pdfplumber.open(uploaded_file) as pdf:
-                    text = "\n".join([page.extract_text() or "" for page in pdf.pages])
-                case_name = extract_case_name_first_block(text, uploaded_file.name)
-                year = extract_year(text)
-                headnotes = extract_headnotes(text)
-                topic_groups = assign_topic_groups(headnotes)
-                legislation = extract_legislation_block(text)
-                cases_referred = extract_cases_referred_block(text)
-                quranic_verses = extract_quranic_verses_block(text)
-                main_body = extract_main_body(text)
-                records.append({
-                    "Case Name": case_name,
-                    "Year": year,
-                    "Issues (headnotes)": headnotes,
-                    "Topic Groups": topic_groups,
-                    "Legislation referred": legislation,
-                    "Cases referred to": cases_referred,
-                    "Quranic verse(s) referred": quranic_verses,
-                    "Main Body": main_body
-                })
-            except Exception as ex:
-                st.warning(f"Failed on {uploaded_file.name}: {ex}")
-            progress_bar.progress(int(100*(idx+1)/len(uploaded_files)))
+        for uploaded_file in uploaded_files:
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+            case_name = extract_case_name_first_block(text, uploaded_file.name)
+            year = extract_year(text)
+            headnotes = extract_headnotes(text)
+            topic_groups = assign_topic_groups(headnotes)
+            legislation = extract_legislation_block(text)
+            cases_referred = extract_cases_referred_block(text)
+            quranic_verses = extract_quranic_verses_block(text)
+            main_body = extract_main_body(text)
+            records.append({
+                "Case Name": case_name,
+                "Year": year,
+                "Issues (headnotes)": headnotes,
+                "Topic Groups": topic_groups,
+                "Legislation referred": legislation,
+                "Cases referred to": cases_referred,
+                "Quranic verse(s) referred": quranic_verses,
+                "Main Body": main_body
+            })
         df = pd.DataFrame(records)
         save_df(df)
         st.success(f"Processed and saved {len(df)} cases.")
 
+# --- Search Section ---
 df = load_df()
 if df is not None and not df.empty:
     st.dataframe(df[["Case Name", "Year", "Topic Groups", "Legislation referred", "Quranic verse(s) referred"]])
-
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
     st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
-                      file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                       file_name="ssar_cases.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     st.markdown("### Search Cases")
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("#### By Legislation Section")
         keywords = st.text_input("Act name/short form", "AMLA")
-        section = st.text_input("Section (e.g. 52 or 52(8))", "")
+        section = st.text_input("Section (e.g. 52, 52(8))", "")
         if section:
             if "(" in section:
                 results = search_legislation_exact_subsection(df, keywords, section)
@@ -285,18 +261,9 @@ if df is not None and not df.empty:
                 results = search_legislation_section_strict(df, keywords, section)
             st.write(results if results else "No matches found.")
     with col2:
-        st.markdown("#### By Quranic Verse")
-        verse = st.text_input("Verse (Surah:Verse, e.g. 2:282)", "")
+        verse = st.text_input("Quranic Verse (Surah:Verse, e.g. 2:282)", "")
         if verse:
             results = search_quranic(df, verse)
             st.write(results if results else "No matches found.")
 else:
-    st.info("No database found. Please upload PDFs first.")
-
-with st.expander("How to use this app"):
-    st.markdown("""
-1. Upload Syariah Appeal Board judgement PDFs once to build/update the database.  
-2. When a database exists, search instantly without re-uploading.  
-3. Download the processed file for offline use.  
-*Note: All processing is local to the environment where the app is hosted.*
-""")
+    st.info("No database found. Please upload PDFs to create one.")
