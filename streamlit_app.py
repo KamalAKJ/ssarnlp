@@ -7,7 +7,7 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# -------------- Constants --------------
+# ----------- Constants and Mappings -----------
 ISSUE_TOPICS = {
     "Divorce Grounds": [
         "talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown", "judicial separation", "taklik", "pronouncement", "divorce", "fault", "reconciliation", "nullity", "consent order", "bain", "rajii"
@@ -32,7 +32,7 @@ SHORTFORM_MAP = {
 }
 DATA_PATH = "case_data.pkl"
 
-# -------------- Extraction & Search --------------
+# ----------- Extraction & Search Functions -----------
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -53,8 +53,7 @@ def add_short_forms(name):
 
 def extract_case_name_first_block(text, filename):
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-    start = next((i for i, line in enumerate(lines[:30])
-        if "SYARIAH APPEALS REPORTS" in line or ("SSAR" in line and "REPORTS" in line)), None)
+    start = next((i for i, line in enumerate(lines[:30]) if "SYARIAH APPEALS REPORTS" in line or ("SSAR" in line and "REPORTS" in line)), None)
     if start is None:
         for line in lines[:7]:
             if re.match(r"^[A-Z]{2,} v [A-Z]{2,}$", line):
@@ -185,7 +184,8 @@ def search_quranic(df, verse_query):
         any(verse_norm == normalize(v) for v in lst))
     return sorted(df.loc[mask, "Case Name"])
 
-# -------------- Save / Load / Clear --------------
+# ----------- DB Save / Load / Clear -----------
+
 def save_df(df):
     df.to_pickle(DATA_PATH)
 
@@ -202,13 +202,13 @@ def clear_database():
     st.success("Database cleared.")
     st.rerun()
 
-# -------------- Streamlit App --------------
+# ----------- Streamlit App Setup -----------
+
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached()
-
 df = st.session_state.df
 
 # ---- Database Management ----
@@ -225,9 +225,9 @@ with st.expander("Upload PDFs (to update database)", expanded=(df is None)):
         status_text = st.empty()
         for idx, uploaded_file in enumerate(uploaded_files):
             status_text.text(f"Processing {uploaded_file.name}...")
-            with pdfplumber.open(uploaded_file) as pdf:
-                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
             try:
+                with pdfplumber.open(uploaded_file) as pdf:
+                    text = "\n".join([page.extract_text() or "" for page in pdf.pages])
                 case_name = extract_case_name_first_block(text, uploaded_file.name)
                 year = extract_year(text)
                 headnotes = extract_headnotes(text)
@@ -260,41 +260,36 @@ with st.expander("Upload PDFs (to update database)", expanded=(df is None)):
         else:
             st.error("No cases were processed. Please check your PDFs.")
 
-# ---- Display + Download + Visualisation + Search ----
+# ---- Display, Visualisations, and Search ----
 if df is not None and not df.empty:
     if st.checkbox("Show full database table"):
         st.dataframe(df)
-
-    # Download
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
     st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
                        file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # --- Visualisations ---
     st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
-    if "Year" in df and "Topic Groups" in df:
-        cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
-        if not cntdata.empty:
-            plt.figure(figsize=(10,6))
-            sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o")
-            plt.title("Yearly Topic Group Trends: Number of Cases")
-            plt.grid(True)
-            st.pyplot(plt.gcf())
-            plt.clf()
+    cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
+    if not cntdata.empty:
+        plt.figure(figsize=(10,6))
+        sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o")
+        plt.title("Yearly Topic Group Trends: Number of Cases")
+        plt.grid(True)
+        st.pyplot(plt.gcf())
+        plt.clf()
 
-            st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
-            prop_data = cntdata.copy()
-            totals = prop_data.groupby("Year")["count"].transform("sum")
-            prop_data["proportion"] = prop_data["count"] / totals
-            plt.figure(figsize=(10,6))
-            sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
-            plt.title("Yearly Topic Group Trends: Proportion of Cases")
-            plt.grid(True)
-            st.pyplot(plt.gcf())
-            plt.clf()
+        st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
+        prop_data = cntdata.copy()
+        totals = prop_data.groupby("Year")["count"].transform("sum")
+        prop_data["proportion"] = prop_data["count"] / totals
+        plt.figure(figsize=(10,6))
+        sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
+        plt.title("Yearly Topic Group Trends: Proportion of Cases")
+        plt.grid(True)
+        st.pyplot(plt.gcf())
+        plt.clf()
 
-    # --- Extra Visuals: Topic and Legislation bar charts (like notebook) ---
     st.subheader("📊 Topic Group Distribution (all years)")
     all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
     topic_df = pd.DataFrame(all_topics, columns=["Topic"])
@@ -304,7 +299,7 @@ if df is not None and not df.empty:
         ax.set_title("Topic Groups Distribution")
         st.pyplot(fig)
         plt.clf()
-    
+
     st.subheader("📊 Top 10 Legislation References")
     all_legs = [l for sublist in df["Legislation referred"] for l in sublist]
     leg_df = pd.DataFrame(all_legs, columns=["Legislation"])
@@ -316,7 +311,6 @@ if df is not None and not df.empty:
         st.pyplot(fig)
         plt.clf()
 
-    # --- Search ---
     st.subheader("🔍 Search Cases")
     col1, col2 = st.columns(2)
     with col1:
