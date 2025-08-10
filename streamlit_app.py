@@ -40,7 +40,7 @@ SHORTFORM_MAP = {
 }
 DATA_PATH = "case_data.pkl"
 
-# ================= Helper Functions =================
+# ================= Extraction & Search Helper Functions (unchanged logic) =================
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -197,8 +197,8 @@ def search_quranic(df, verse_query):
 def save_df(df):
     df.to_pickle(DATA_PATH)
 
-@st.cache_data
-def load_df():
+@st.cache_data(show_spinner=False)
+def load_df_cached():
     if os.path.exists(DATA_PATH):
         return pd.read_pickle(DATA_PATH)
     return None
@@ -207,7 +207,11 @@ def load_df():
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
-df = load_df()
+# Load into session state only once
+if "df" not in st.session_state:
+    st.session_state.df = load_df_cached()
+
+df = st.session_state.df
 
 # --- Upload Section ---
 with st.expander("Upload PDFs (only if you want to update database)", expanded=(df is None)):
@@ -237,12 +241,15 @@ with st.expander("Upload PDFs (only if you want to update database)", expanded=(
             })
         df = pd.DataFrame(records)
         save_df(df)
+        st.session_state.df = df  # update session immediately
         st.success(f"Processed and saved {len(df)} cases.")
 
-# --- Search Section ---
-df = load_df()
+df = st.session_state.df
 if df is not None and not df.empty:
-    st.dataframe(df[["Case Name", "Year", "Topic Groups", "Legislation referred", "Quranic verse(s) referred"]])
+    if st.checkbox("Show full database table"):
+        st.dataframe(df[["Case Name", "Year", "Topic Groups",
+                         "Legislation referred", "Quranic verse(s) referred"]])
+
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
     st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
