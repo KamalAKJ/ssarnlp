@@ -41,6 +41,8 @@ SHORTFORM_MAP = {
 DATA_PATH = "case_data.pkl"
 
 # ================= Extraction & Search Helper Functions (unchanged logic) =================
+# ... (unchanged helper functions go here, for brevity left as in your previous code) ...
+
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -209,22 +211,24 @@ def clear_database():
         del st.session_state.df
     if os.path.exists(DATA_PATH):
         os.remove(DATA_PATH)
+    # Re-set session state variable to None, so rest of UI won't error
+    st.session_state.df = None
     st.success("Database cleared. Upload PDFs to create a new one.")
 
 # ================= Streamlit App =================
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
-# Load into session state only once
+# ALWAYS safe-session-initialize before using
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached()
-
-df = st.session_state.df
+df = st.session_state.get('df', None)
 
 # --- Database Management section ---
 with st.expander("Database Management"):
     if st.button("Clear Database"):
         clear_database()
+        df = None  # Also clear local variable, so UI updates immediately
 
 # --- Upload Section ---
 with st.expander("Upload PDFs (only if you want to update database)", expanded=(df is None)):
@@ -257,7 +261,8 @@ with st.expander("Upload PDFs (only if you want to update database)", expanded=(
         st.session_state.df = df  # update session immediately
         st.success(f"Processed and saved {len(df)} cases.")
 
-df = st.session_state.df
+df = st.session_state.get('df', None)
+
 if df is not None and not df.empty:
     if st.checkbox("Show full database table"):
         st.dataframe(df[["Case Name", "Year", "Topic Groups",
