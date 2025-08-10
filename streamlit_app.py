@@ -263,13 +263,6 @@ if df is not None:
             st.subheader("📊 Topic Group Distribution")
             st.pyplot(fig); plt.clf()
         all_legs = [l for sublist in df["Legislation referred"] for l in sublist]
-        if all_legs:
-            leg_df = pd.DataFrame(all_legs, columns=["Legislation"])
-            top_legs = leg_df["Legislation"].value_counts().head(10)
-            fig, ax = plt.subplots()
-            top_legs.plot(kind="barh", ax=ax)
-            ax.set_title("Top 10 Legislation References")
-            st.pyplot(fig); plt.clf()
     # SEARCH BAR
     st.subheader("🔍 Search Cases")
     col1, col2 = st.columns(2)
