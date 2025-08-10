@@ -7,23 +7,22 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# ----------- Constants and Mappings -----------
+# ========== Constants ==========
 ISSUE_TOPICS = {
-    "Divorce Grounds": [
-        "talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown", "judicial separation", "taklik", "pronouncement", "divorce", "fault", "reconciliation", "nullity", "consent order", "bain", "rajii"
-    ],
-    "Matrimonial Asset Division": [
-        "division", "apportion", "matrimonial asset", "matrimonial property", "property", "assets", "cpf", "hdb", "sale of flat", "valuation", "uplift", "refund", "ownership", "net sale proceeds", "structured approach", "direct financial", "indirect contribution", "asset pool"
-    ],
-    "Child Matters": [
-        "custody", "care and control", "access", "maintenance (child)", "parenting", "joint custody", "variation of custody", "hadhanah", "wilayah", "school", "accommodation", "child maintenance", "welfare", "guardianship", "minor child", "children"
-    ],
-    "Jurisdiction": [
-        "jurisdiction", "forum", "appeal board powers", "court jurisdiction", "s 35", "section 35", "s 526", "legal capacity", "variation", "procedural", "intervener"
-    ],
-    "Marriage": [
-        "marriage", "wali", "nikah", "consent", "registration", "polygamy", "remarry", "solemnisation", "validation", "dissolution"
-    ]
+    "Divorce Grounds": ["talak", "fasakh", "khuluk", "nusyuz", "irretrievable breakdown", 
+                        "judicial separation", "taklik", "pronouncement", "divorce", "fault", 
+                        "reconciliation", "nullity", "consent order", "bain", "rajii"],
+    "Matrimonial Asset Division": ["division", "apportion", "matrimonial asset", "matrimonial property", 
+                                   "property", "assets", "cpf", "hdb", "sale of flat", "valuation", 
+                                   "uplift", "refund", "ownership", "net sale proceeds", "structured approach", 
+                                   "direct financial", "indirect contribution", "asset pool"],
+    "Child Matters": ["custody", "care and control", "access", "maintenance (child)", "parenting",
+                      "joint custody", "variation of custody", "hadhanah", "wilayah", "school", 
+                      "accommodation", "child maintenance", "welfare", "guardianship", "minor child", "children"],
+    "Jurisdiction": ["jurisdiction", "forum", "appeal board powers", "court jurisdiction", "s 35", 
+                     "section 35", "s 526", "legal capacity", "variation", "procedural", "intervener"],
+    "Marriage": ["marriage", "wali", "nikah", "consent", "registration", "polygamy", "remarry", 
+                 "solemnisation", "validation", "dissolution"]
 }
 SHORTFORM_MAP = {
     "Administration of Muslim Law Act": "AMLA",
@@ -32,7 +31,7 @@ SHORTFORM_MAP = {
 }
 DATA_PATH = "case_data.pkl"
 
-# ----------- Extraction & Search Functions -----------
+# ========== Helper Functions ==========
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
     for line in lines:
@@ -53,7 +52,8 @@ def add_short_forms(name):
 
 def extract_case_name_first_block(text, filename):
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-    start = next((i for i, line in enumerate(lines[:30]) if "SYARIAH APPEALS REPORTS" in line or ("SSAR" in line and "REPORTS" in line)), None)
+    start = next((i for i, line in enumerate(lines[:30]) if "SYARIAH APPEALS REPORTS" in line or 
+                  ("SSAR" in line and "REPORTS" in line)), None)
     if start is None:
         for line in lines[:7]:
             if re.match(r"^[A-Z]{2,} v [A-Z]{2,}$", line):
@@ -63,11 +63,14 @@ def extract_case_name_first_block(text, filename):
         return os.path.splitext(filename)[0]
     block = lines[start+1:start+12]
     for j in range(len(block)-2):
-        if re.match(r"^[A-Z]{2,}$", block[j]) and block[j+1].lower() == "v" and re.match(r"^[A-Z]{2,}$", block[j+2]):
+        if (re.match(r"^[A-Z]{2,}$", block[j]) and 
+            block[j+1].lower() == "v" and 
+            re.match(r"^[A-Z]{2,}$", block[j+2])):
             return f"{block[j]} v {block[j+2]}"
     for line in block:
-        if re.match(r"^[A-Z]{2,} v [A-Z]{2,}$", line): return line
-        if line.startswith("Re ") and re.match(r"^Re [A-Z]{2,}$", line): return line
+        if re.match(r"^[A-Z]{2,} v [A-Z]{2,}$", line) or (
+           line.startswith("Re ") and re.match(r"^Re [A-Z]{2,}$", line)):
+            return line
     return os.path.splitext(filename)[0]
 
 def extract_year(text):
@@ -81,7 +84,8 @@ def extract_headnotes(text):
         if re.search(r'[—–-]', line):
             for item in re.split(r'[—–-]', line):
                 cleaned = item.strip()
-                if cleaned and len(cleaned.split()) > 2 and not cleaned.lower().startswith("syariah appeal board"):
+                if (cleaned and len(cleaned.split()) > 2 and 
+                    not cleaned.lower().startswith("syariah appeal board")):
                     headnotes.append(cleaned)
     return sorted(set(headnotes))
 
@@ -96,10 +100,8 @@ def assign_topic_groups(headnotes):
 
 def extract_legislation_block(text):
     lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Legislation referred to', [
-            r'^Quranic verse', r'^Cases? referred to', r'^Issues? for determination', r'^Background'
-        ])
+    block_lines = extract_header_window(lines, r'^Legislation referred to', 
+        [r'^Quranic verse', r'^Cases? referred to', r'^Issues? for determination', r'^Background'])
     acts = []
     for line in block_lines:
         m = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b.*?)(?:\([^)]+\))?", line)
@@ -122,24 +124,18 @@ def extract_legislation_block(text):
 
 def extract_cases_referred_block(text):
     lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Cases? referred to', [
-            r'^Legislation referred to', r'^Quranic verse', r'^Issues? for determination', r'^Background'
-        ])
+    block_lines = extract_header_window(lines, r'^Cases? referred to', 
+        [r'^Legislation referred to', r'^Quranic verse', r'^Issues? for determination', r'^Background'])
     cases = []
     for line in block_lines:
-        if re.match(r"^[A-Z]{2,} v [A-Z]{2,}", line) or line.startswith("Re "):
-            cases.append(line.strip())
-        elif re.search(r'SSAR|SGSAB', line):
+        if re.match(r"^[A-Z]{2,} v [A-Z]{2,}", line) or line.startswith("Re ") or re.search(r'SSAR|SGSAB', line):
             cases.append(line.strip())
     return sorted(set(cases))
 
 def extract_quranic_verses_block(text):
     lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Quranic verse\(s\) referred to', [
-            r'^Legislation referred to', r'^Cases? referred to', r'^Issues? for determination', r'^Background'
-        ])
+    block_lines = extract_header_window(lines, r'^Quranic verse\(s\) referred to', 
+        [r'^Legislation referred to', r'^Cases? referred to', r'^Issues? for determination', r'^Background'])
     verses = []
     for l in block_lines:
         surah_matches = re.findall(r'Surah\s*(\d+)', l, re.IGNORECASE)
@@ -184,16 +180,13 @@ def search_quranic(df, verse_query):
         any(verse_norm == normalize(v) for v in lst))
     return sorted(df.loc[mask, "Case Name"])
 
-# ----------- DB Save / Load / Clear -----------
-
+# ======== Save/Load/Clear ========
 def save_df(df):
     df.to_pickle(DATA_PATH)
 
 @st.cache_data(show_spinner=False)
 def load_df_cached():
-    if os.path.exists(DATA_PATH):
-        return pd.read_pickle(DATA_PATH)
-    return None
+    return pd.read_pickle(DATA_PATH) if os.path.exists(DATA_PATH) else None
 
 def clear_database():
     if os.path.exists(DATA_PATH):
@@ -202,8 +195,7 @@ def clear_database():
     st.success("Database cleared.")
     st.rerun()
 
-# ----------- Streamlit App Setup -----------
-
+# ======== App Setup ========
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
 st.title("Syariah Appeal Board Case Database")
 
@@ -211,74 +203,68 @@ if "df" not in st.session_state:
     st.session_state.df = load_df_cached()
 df = st.session_state.df
 
-# ---- Database Management ----
+# --- Management ---
 with st.expander("Database Management"):
     if st.button("Clear Database"):
         clear_database()
 
-# ---- Upload PDFs ----
+# --- Upload ---
 with st.expander("Upload PDFs (to update database)", expanded=(df is None)):
-    uploaded_files = st.file_uploader("Upload one or more PDF files", type=["pdf"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Upload PDFs", type=["pdf"], accept_multiple_files=True)
     if uploaded_files:
         records = []
         progress_bar = st.progress(0)
         status_text = st.empty()
         for idx, uploaded_file in enumerate(uploaded_files):
             status_text.text(f"Processing {uploaded_file.name}...")
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+
+            case_data = {}
             try:
-                with pdfplumber.open(uploaded_file) as pdf:
-                    text = "\n".join([page.extract_text() or "" for page in pdf.pages])
-                case_name = extract_case_name_first_block(text, uploaded_file.name)
-                year = extract_year(text)
+                case_data["Case Name"] = extract_case_name_first_block(text, uploaded_file.name)
+                case_data["Year"] = extract_year(text)
                 headnotes = extract_headnotes(text)
-                topic_groups = assign_topic_groups(headnotes)
-                legislation = extract_legislation_block(text)
-                cases_referred = extract_cases_referred_block(text)
-                quranic_verses = extract_quranic_verses_block(text)
-                main_body = extract_main_body(text)
-                records.append({
-                    "Case Name": case_name,
-                    "Year": year,
-                    "Issues (headnotes)": headnotes,
-                    "Topic Groups": topic_groups,
-                    "Legislation referred": legislation,
-                    "Cases referred to": cases_referred,
-                    "Quranic verse(s) referred": quranic_verses,
-                    "Main Body": main_body
-                })
+                case_data["Issues (headnotes)"] = headnotes
+                case_data["Topic Groups"] = assign_topic_groups(headnotes)
+                case_data["Legislation referred"] = extract_legislation_block(text)
+                case_data["Cases referred to"] = extract_cases_referred_block(text)
+                case_data["Quranic verse(s) referred"] = extract_quranic_verses_block(text)
+                case_data["Main Body"] = extract_main_body(text)
             except Exception as e:
-                st.warning(f"Error processing {uploaded_file.name}: {e}")
+                st.error(f"Error processing {uploaded_file.name}: {e}")
+                st.code(text[:500])
+
+            records.append(case_data)
             progress_bar.progress(int(100*(idx+1)/len(uploaded_files)))
         status_text.text("Done.")
 
-        new_df = pd.DataFrame(records)
-        save_df(new_df)
-        st.session_state.df = load_df_cached()
-        df = st.session_state.df
-        if df is not None and not df.empty:
+        if records:
+            save_df(pd.DataFrame(records))
+            st.session_state.df = load_df_cached()
+            df = st.session_state.df
             st.success(f"Processed and saved {len(df)} cases.")
         else:
-            st.error("No cases were processed. Please check your PDFs.")
+            st.error("No cases were processed.")
 
-# ---- Display, Visualisations, and Search ----
+# --- Display/Search ---
 if df is not None and not df.empty:
     if st.checkbox("Show full database table"):
         st.dataframe(df)
+    # Download
     excel_data = io.BytesIO()
     df.to_excel(excel_data, index=False)
     st.download_button("Download database (.xlsx)", data=excel_data.getvalue(),
-                       file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
+                       file_name="ssar_cases.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # Visualisations
     st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
     cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
     if not cntdata.empty:
         plt.figure(figsize=(10,6))
         sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o")
         plt.title("Yearly Topic Group Trends: Number of Cases")
-        plt.grid(True)
-        st.pyplot(plt.gcf())
-        plt.clf()
-
+        st.pyplot(plt.gcf()); plt.clf()
         st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
         prop_data = cntdata.copy()
         totals = prop_data.groupby("Year")["count"].transform("sum")
@@ -286,46 +272,23 @@ if df is not None and not df.empty:
         plt.figure(figsize=(10,6))
         sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
         plt.title("Yearly Topic Group Trends: Proportion of Cases")
-        plt.grid(True)
-        st.pyplot(plt.gcf())
-        plt.clf()
-
-    st.subheader("📊 Topic Group Distribution (all years)")
-    all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
-    topic_df = pd.DataFrame(all_topics, columns=["Topic"])
-    if not topic_df.empty:
-        fig, ax = plt.subplots()
-        sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax)
-        ax.set_title("Topic Groups Distribution")
-        st.pyplot(fig)
-        plt.clf()
-
-    st.subheader("📊 Top 10 Legislation References")
-    all_legs = [l for sublist in df["Legislation referred"] for l in sublist]
-    leg_df = pd.DataFrame(all_legs, columns=["Legislation"])
-    if not leg_df.empty:
-        top_legs = leg_df["Legislation"].value_counts().head(10)
-        fig, ax = plt.subplots()
-        top_legs.plot(kind="barh", ax=ax)
-        ax.set_title("Top 10 Legislation References")
-        st.pyplot(fig)
-        plt.clf()
-
+        st.pyplot(plt.gcf()); plt.clf()
+    # Search
     st.subheader("🔍 Search Cases")
     col1, col2 = st.columns(2)
     with col1:
         keywords = st.text_input("Act name/short form", "AMLA")
-        section = st.text_input("Section (e.g. 52, 52(8))", "")
+        section = st.text_input("Section (e.g. 52, 52(8))")
         if section:
             if "(" in section:
                 results = search_legislation_exact_subsection(df, keywords, section)
             else:
                 results = search_legislation_section_strict(df, keywords, section)
-            st.write(results if results else "No matches found.")
+            st.write(results or "No matches found.")
     with col2:
-        verse = st.text_input("Quranic Verse (Surah:Verse, e.g. 2:282)", "")
+        verse = st.text_input("Quranic Verse (Surah:Verse, e.g. 2:282)")
         if verse:
             results = search_quranic(df, verse)
-            st.write(results if results else "No matches found.")
+            st.write(results or "No matches found.")
 else:
     st.info("No database found. Please upload PDFs to create one.")
