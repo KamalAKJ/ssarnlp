@@ -191,7 +191,7 @@ def clear_database():
 
 # ---------- APP ----------
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
-st.title("Syariah Appeal Board Case Database")
+st.title("SSAR Engine: Visualisation and Search")
 
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached(os.path.getmtime(DATA_PATH) if os.path.exists(DATA_PATH) else None)
