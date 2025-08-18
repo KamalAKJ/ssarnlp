@@ -190,7 +190,7 @@ def clear_database():
     st.rerun()
 
 # ---------- APP ----------
-st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
+st.set_page_config(page_title="SSAR Engine", layout="wide")
 st.title("SSAR Engine: Visualisation and Search")
 
 if "df" not in st.session_state:
