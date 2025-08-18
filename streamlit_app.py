@@ -191,7 +191,7 @@ def clear_database():
 
 # ---------- APP ----------
 st.set_page_config(page_title="Syariah Appeal Case Search", layout="wide")
-st.title("Syariah Appeal Board Case Database")
+st.title("SSAR Cases Visualisation and Search Engine")
 
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached(os.path.getmtime(DATA_PATH) if os.path.exists(DATA_PATH) else None)
@@ -243,25 +243,35 @@ if df is not None:
                            file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         # Visuals
         cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
+        
         if not cntdata.empty:
             st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
             plt.figure(figsize=(10,6))
             sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o")
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))   # Force integer x-axis (years)
+            plt.gca().yaxis.set_major_locator(MaxNLocator(integer=True))   # Force integer y-axis (counts)
             st.pyplot(plt.gcf()); plt.clf()
+        
             st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
             prop_data = cntdata.copy()
             totals = prop_data.groupby("Year")["count"].transform("sum")
             prop_data["proportion"] = prop_data["count"] / totals
             plt.figure(figsize=(10,6))
             sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))   # Force integer x-axis (years)
+            # For proportions, you may want only integer (0, 1) or keep default; usually proportions are float.
             st.pyplot(plt.gcf()); plt.clf()
-        all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
-        if all_topics:
-            topic_df = pd.DataFrame(all_topics, columns=["Topic"])
-            fig, ax = plt.subplots()
-            sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax)
-            st.subheader("📊 Topic Group Distribution")
-            st.pyplot(fig); plt.clf()
+
+all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
+
+if all_topics:
+    topic_df = pd.DataFrame(all_topics, columns=["Topic"])
+    fig, ax = plt.subplots()
+    sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))          # Force integer x-axis (counts)
+    st.subheader("📊 Topic Group Distribution")
+    st.pyplot(fig); plt.clf()
+
         all_legs = [l for sublist in df["Legislation referred"] for l in sublist]
     # SEARCH BAR
     st.subheader("🔍 Search Cases")
