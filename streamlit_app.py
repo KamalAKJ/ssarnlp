@@ -294,6 +294,6 @@ This tool is NOT intended to replace reading of cases, and should not be taken a
 Feel free to use this app as an exploratory tool, without relying entirely on the output generated.
 Furthermore, feel free to fork this code and make improvements!
 
-- Kamal"""
+Kamal Ashraf"""
 )
 
