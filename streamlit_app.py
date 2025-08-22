@@ -1,3 +1,16 @@
+''' 
+This is the work of a Law undergraduate, with elementary coding expertise.
+Perplexity AI was used to generate code here, with refinements via further prompting.
+
+This tool is NOT intended to replace reading of cases, and should not be taken as an authoritative source of legal research.
+Feel free to use this app as an exploratory tool, without relying entirely on the output generated.
+Furthermore, feel free to fork this code and make improvements!
+
+- Kamal
+'''
+
+
+
 import streamlit as st
 import pandas as pd
 import pdfplumber
@@ -270,3 +283,17 @@ if df is not None:
             st.write(search_quranic(df, verse) or "No matches found.")
 else:
     st.info("No database loaded. Please upload PDFs.")
+
+
+
+st.write("""
+This is the work of a Law undergraduate, with elementary coding expertise.
+Perplexity AI was used to generate code here, with refinements via further prompting.
+
+This tool is NOT intended to replace reading of cases, and should not be taken as an authoritative source of legal research.
+Feel free to use this app as an exploratory tool, without relying entirely on the output generated.
+Furthermore, feel free to fork this code and make improvements!
+
+- Kamal"""
+)
+
