@@ -134,23 +134,6 @@ def extract_quranic_verses_block(text):
             verses.append(f"{surah}:{verse}")
     return sorted(set(verses))
 
-def extract_cases_referred_block(text):
-    lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Cases? referred to', [
-            r'^Legislation referred to', r'^Quranic verse', r'^Issues?', r'^Background'
-        ])
-    cases = []
-    for line in block_lines:
-        if re.match(r"^[A-Z]{2,} v [A-Z]{2,}", line) or line.startswith("Re "):
-            cases.append(line.strip())
-        elif re.search(r'SSAR|SGSAB', line):
-            cases.append(line.strip())
-    return sorted(set(cases))
-
-def extract_main_body(text):
-    return text
-
 # ---------- SEARCH ----------
 def normalize(s): return re.sub(r'[\s\(\)\[\]\.,:\-]', '', str(s).lower())
 
@@ -218,9 +201,6 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                 "Topic Groups": assign_topic_groups(extract_headnotes(text)),
                 "Legislation referred": extract_legislation_block(text),
                 "Quranic verse(s) referred": extract_quranic_verses_block(text),
-                "Main Body": extract_main_body(text),
-                # "Cases referred to" is ONLY for table view, not used in search
-                "Cases referred to": extract_cases_referred_block(text)
             }
             records.append(case_data)
             progress_bar.progress(int(100 * (idx+1)/len(uploaded_files)))
