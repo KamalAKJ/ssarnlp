@@ -293,6 +293,10 @@ Perplexity AI was used for code generation, further refined through additional p
 **Disclaimer:** This tool is provided for academic and exploratory purposes only.  
 It does **not** replace reading primary legal sources, and should **not** be considered authoritative legal advice or relied upon for any official or professional matter.
 
+Case Topic Groupings are based on arbitrarily-set catchwords, and may be prone to under/over-counting. See my GitHub page for the full code.
+
+Legislation and Quranic verse searches are more objective, based on a fixed citation format, and are potentially more reliable.
+
 Feel free to use, fork, or improve this tool!
 
 — Kamal Ashraf
