@@ -286,7 +286,7 @@ else:
 
 
 
-st.write("""
+st.markdown("""
 This is the work of a Law undergraduate, with elementary coding expertise.
 Perplexity AI was used to generate code here, with refinements via further prompting.
 
