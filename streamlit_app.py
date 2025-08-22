@@ -287,13 +287,15 @@ else:
 
 
 st.markdown("""
-This is the work of a Law undergraduate, with elementary coding expertise.
-Perplexity AI was used to generate code here, with refinements via further prompting.
+This application was developed by a Law undergraduate with basic coding skills.
+Perplexity AI was used for code generation, further refined through additional prompting.
 
-This tool is NOT intended to replace reading of cases, and should not be taken as an authoritative source of legal research.
-Feel free to use this app as an exploratory tool, without relying entirely on the output generated.
-Furthermore, feel free to fork this code and make improvements!
+**Disclaimer:** This tool is provided for academic and exploratory purposes only.  
+It does **not** replace reading primary legal sources, and should **not** be considered authoritative legal advice or relied upon for any official or professional matter.
 
-Kamal Ashraf"""
+Feel free to use, fork, or improve this tool!
+
+— Kamal Ashraf
+"""
 )
 
