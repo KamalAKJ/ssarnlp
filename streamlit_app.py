@@ -223,25 +223,28 @@ if df is not None:
                            file_name="ssar_cases.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         # Visuals
         cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
-        # Ensure Year is numeric/integer and drop rows without year
-        cntdata["Year"] = pd.to_numeric(cntdata["Year"], errors="coerce")  # Convert year to numeric
-        cntdata = cntdata.dropna(subset=["Year"])                          # Drop rows where Year is NaN
-        cntdata["Year"] = cntdata["Year"].astype(int)                      # Convert Year to integer type
-
+        cntdata["Year"] = pd.to_numeric(cntdata["Year"], errors="coerce")
+        cntdata = cntdata.dropna(subset=["Year"])
+        cntdata["Year"] = cntdata["Year"].astype(int)
+        cntdata["Year"] = cntdata["Year"].astype(str)        # <-- Ensure categorical (string) years
+        
         if not cntdata.empty:
             st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
             plt.figure(figsize=(10,6))
             sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o")
-            plt.xticks(sorted(cntdata["Year"].unique())) 
             st.pyplot(plt.gcf()); plt.clf()
+        
             st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
             prop_data = cntdata.copy()
             totals = prop_data.groupby("Year")["count"].transform("sum")
             prop_data["proportion"] = prop_data["count"] / totals
+            prop_data["Year"] = prop_data["Year"].astype(str)   # <-- Ensure categorical (string) years here too
             plt.figure(figsize=(10,6))
             sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o")
-            plt.xticks(sorted(prop_data["Year"].unique()))
             st.pyplot(plt.gcf()); plt.clf()
+
+
+        
         all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
         if all_topics:
             topic_df = pd.DataFrame(all_topics, columns=["Topic"])
