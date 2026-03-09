@@ -15,35 +15,16 @@ import pdfplumber
 import re
 import io
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 # ---------- CONSTANTS ----------
-ISSUE_TOPICS = {
-    "Divorce Grounds": ["talak","fasakh","khuluk","nusyuz","irretrievable breakdown",
-                        "judicial separation","taklik","pronouncement","divorce",
-                        "fault","reconciliation","nullity","consent order","bain","rajii"],
-    "Matrimonial Asset Division": ["division","apportion","matrimonial asset","matrimonial property",
-                                   "property","assets","cpf","hdb","sale of flat","valuation",
-                                   "uplift","refund","ownership","net sale proceeds","structured approach",
-                                   "direct financial","indirect contribution","asset pool"],
-    "Child Matters": ["custody","care and control","access","maintenance (child)","parenting",
-                      "joint custody","variation of custody","hadhanah","wilayah",
-                      "school","accommodation","child maintenance","welfare",
-                      "guardianship","minor child","children"],
-    "Jurisdiction": ["jurisdiction","forum","appeal board powers","court jurisdiction",
-                     "s 35","section 35","s 526","legal capacity","variation","procedural","intervener", "forum"],
-    "Marriage": ["marriage","wali","nikah","consent","registration",
-                 "polygamy","remarry","solemnisation","validation","dissolution"]
-}
-
 SHORTFORM_MAP = {
     "Administration of Muslim Law Act": "AMLA",
     "Women’s Charter": "WC",
     "Women's Charter": "WC"
 }
 
-DATA_PATH = "case_data.pkl"
+# Changed the database name slightly to avoid loading your older, heavier database file by mistake
+DATA_PATH = "ssar_lite_data.pkl" 
 
 # ---------- EXTRACTION HELPERS ----------
 
@@ -67,37 +48,28 @@ def add_short_forms(name):
 
 def extract_case_name_first_block(text, filename):
     lines = [l.strip() for l in text.split('\n') if l.strip()]
+    
     for line in lines[:15]:
-        if re.search(r"\b v \b", line) or re.search(r"^Re \b", line, re.IGNORECASE):
-            return line
+        # KILL SWITCH: Stop scanning if we reach the citations section
+        if re.match(r"^case\(s\)\s+referred\s+to", line, re.IGNORECASE):
+            break
             
+        # STRICT REGEX: Only match standard initialed case names (e.g., "FS v FT")
+        if re.match(r"^[A-Z]{2,}\s+v\s+[A-Z]{2,}$", line):
+            return line
+        if re.match(r"^Re\s+[A-Z]{2,}$", line, re.IGNORECASE):
+            return line
+
+    # FALLBACK: Sanitize the highly-accurate uploaded filename
     clean_name = os.path.basename(filename)
-    clean_name = re.sub(r'^\d+\s*SSAR\/', '', clean_name)
-    return clean_name.replace('.pdf', '')
+    clean_name = os.path.splitext(clean_name)[0]
+    # Remove any leading directory paths (e.g., "9 SSAR/")
+    clean_name = re.sub(r'^\d+\s*SSAR[\\/]', '', clean_name)
+    return clean_name.strip()
 
 def extract_year(text):
     years = re.findall(r"(20\d{2}|19\d{2})", text)
     return int(years[0]) if years else None
-
-def extract_headnotes(text):
-    lines = text.split('\n')[:160]
-    headnotes = []
-    for line in lines:
-        if re.search(r'[—–-]', line):
-            for item in re.split(r'[—–-]', line):
-                cleaned = item.strip()
-                if cleaned and len(cleaned.split()) > 2 and not cleaned.lower().startswith("syariah appeal board"):
-                    headnotes.append(cleaned)
-    return sorted(set(headnotes))
-
-def assign_topic_groups(headnotes):
-    assigned = set()
-    for h in headnotes:
-        h_lc = h.lower()
-        for group, keywords in ISSUE_TOPICS.items():
-            if any(re.search(rf"\b{k}\b", h_lc) for k in keywords):
-                assigned.add(group)
-    return sorted(assigned) if assigned else ["Other"]
 
 # [ENHANCED] Advanced Legislation Extraction
 def extract_legislation_block(text):
@@ -108,28 +80,23 @@ def extract_legislation_block(text):
         ])
     acts = []
     for line in block_lines:
-        # Detect where the section list starts (e.g., "ss ", "s ", "section ")
         match = re.search(r'\b(?:s|ss|section|r|rule|cap)s?\b\s*(.*)', line, re.IGNORECASE)
         
         if match:
             act_part = line[:match.start()].strip()
             sections_part = match.group(1).strip()
             
-            # Extract Act name, ignoring specific version years for grouping
             act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part)
             stat = act_name_match.group(1).strip() if act_name_match else act_part
             
-            # Split sections by commas or "and"
             sections = [sect.strip() for sect in re.split(r',|and', sections_part) if sect.strip()]
             
             for name in add_short_forms(stat):
                 for sect in sections:
-                    # Remove all internal whitespace from sections for indexing
                     clean_sect = re.sub(r'\s+', '', sect)
                     if clean_sect:
                         acts.append(f"{name} s {clean_sect}")
         else:
-            # Fallback if the line just lists an Act without sections
             act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", line)
             stat = act_name_match.group(1).strip() if act_name_match else line.strip()
             for name in add_short_forms(stat):
@@ -146,7 +113,6 @@ def extract_quranic_verses_block(text):
         ])
     verses = []
     for l in block_lines:
-        # Standard format: Surah X, Name, verse Y
         surah_match = re.search(r'Surah\s*(\d+)', l, re.IGNORECASE)
         if surah_match:
             surah_num = surah_match.group(1)
@@ -154,7 +120,6 @@ def extract_quranic_verses_block(text):
             
             if verse_match:
                 verse_part = verse_match.group(1)
-                # Handle lists and ranges
                 for frag in re.split(r',|and', verse_part):
                     frag_clean = re.sub(r'[^\d\-\–]', '', frag.strip())
                     if not frag_clean: continue
@@ -166,12 +131,10 @@ def extract_quranic_verses_block(text):
                     elif frag_clean.isdigit():
                         verses.append(f"{surah_num}:{frag_clean}")
             else:
-                # Handle "Surah X:Y" format
                 sv_short = re.findall(r'Surah\s*(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
                 for s, v in sv_short:
                     verses.append(f"{s}:{v}")
         else:
-            # Handle plain "X:Y" digit format
             sv_short = re.findall(r'(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
             for s, v in sv_short:
                 verses.append(f"{s}:{v}")
@@ -195,7 +158,6 @@ def search_legislation(df, act_keyword, section_query):
         return sorted(df.loc[mask, "Case Name"].unique())
         
     escaped_sec = re.escape(section_clean)
-    # Regex: Match "s [Section]" specifically, allowing subsections but blocking digit overflows
     pattern = re.compile(rf'\bs\s*{escaped_sec}(?!\d|[a-zA-Z])', re.IGNORECASE)
 
     def is_match(leg_list):
@@ -213,9 +175,9 @@ def search_quranic(df, verse_query):
         if not isinstance(q_list, list): return False
         for v in q_list:
             v_parts = v.split(':')
-            if len(nums) == 1 and v_parts[0] == nums[0]: # Surah only search
+            if len(nums) == 1 and v_parts[0] == nums[0]: 
                 return True
-            if len(nums) >= 2 and v_parts[0] == nums[0] and v_parts[1] == nums[1]: # Exact Verse
+            if len(nums) >= 2 and v_parts[0] == nums[0] and v_parts[1] == nums[1]: 
                 return True
         return False
 
@@ -242,10 +204,10 @@ def clear_database():
 
 # ---------- APP MAIN ----------
 
-st.set_page_config(page_title="SSAR Engine", layout="wide")
-st.title("SSAR Engine: Visualisation and Search")
+st.set_page_config(page_title="SSAR Reference Engine", layout="wide")
+st.title("SSAR Legislation & Quranic Reference Engine")
+st.markdown("A focused tool to extract and search statutory and religious citations from Syariah Court cases.")
 
-# Initialize Session State
 if "df" not in st.session_state:
     st.session_state.df = load_df_cached(os.path.getmtime(DATA_PATH) if os.path.exists(DATA_PATH) else None)
 
@@ -259,8 +221,6 @@ with st.expander("Upload PDFs", expanded=(df is None)):
     uploaded_files = st.file_uploader("Upload PDFs", type=["pdf"], accept_multiple_files=True)
     
     if uploaded_files:
-        # Added a button to prevent infinite loops and stop the app from 
-        # re-parsing PDFs every time you type in the search bar.
         if st.button("Process Uploaded Files"): 
             records = []
             progress_bar = st.progress(0)
@@ -272,12 +232,9 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                     with pdfplumber.open(upl) as pdf:
                         text = "\n".join([page.extract_text() or "" for page in pdf.pages])
                     
-                    hnotes = extract_headnotes(text)
                     records.append({
                         "Case Name": extract_case_name_first_block(text, upl.name),
                         "Year": extract_year(text),
-                        "Issues (headnotes)": hnotes,
-                        "Topic Groups": assign_topic_groups(hnotes),
                         "Legislation referred": extract_legislation_block(text),
                         "Quranic verse(s) referred": extract_quranic_verses_block(text),
                     })
@@ -294,6 +251,39 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                 st.success(f"Processed and saved {len(df)} cases. You can now use the search engine below!")
 
 if df is not None and not df.empty:
+    
+    # --- SEARCH ENGINE UI ---
+    st.subheader("🔍 Search Engine")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Legislation Search")
+        kw = st.text_input("Act/Statute (e.g., AMLA, WC)", "AMLA")
+        sec = st.text_input("Section (e.g., 52, 52(8))", "")
+        if kw or sec:
+            results = search_legislation(df, kw, sec)
+            if results:
+                st.success(f"Found {len(results)} matching cases:")
+                for r in results:
+                    st.markdown(f"- **{r}**")
+            else:
+                st.warning("No matches found.")
+            
+    with col2:
+        st.markdown("### Quranic Search")
+        v = st.text_input("Surah or Surah:Verse (e.g., 2 or 2:236)", "")
+        if v:
+            q_results = search_quranic(df, v)
+            if q_results:
+                st.success(f"Found {len(q_results)} matching cases:")
+                for r in q_results:
+                    st.markdown(f"- **{r}**")
+            else:
+                st.warning("No matches found.")
+                
+    st.divider()
+    
+    # --- DATABASE VIEW ---
+    st.subheader("📚 Current Database")
     if st.checkbox("Show full database table"):
         st.dataframe(df)
         
@@ -302,47 +292,12 @@ if df is not None and not df.empty:
     st.download_button(
         "Download database (.xlsx)", 
         data=output.getvalue(),
-        file_name="ssar_cases.xlsx", 
+        file_name="ssar_reference_cases.xlsx", 
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    
-    # --- VISUALS ---
-    st.subheader("📊 Trends & Analytics")
-    cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
-    cntdata = cntdata.dropna(subset=["Year"])
-    cntdata["Year"] = cntdata["Year"].astype(int).astype(str)
-    
-    if not cntdata.empty:
-        fig1, ax1 = plt.subplots(figsize=(10, 6))
-        sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o", ax=ax1)
-        ax1.set_title("Yearly Case Volume by Topic")
-        st.pyplot(fig1)
 
-    all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
-    if all_topics:
-        topic_df = pd.DataFrame(all_topics, columns=["Topic"])
-        fig2, ax2 = plt.subplots(figsize=(10, 6))
-        sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax2)
-        ax2.set_title("Overall Topic Distribution")
-        st.pyplot(fig2)
-
-    # --- SEARCH ---
-    st.subheader("🔍 Search Engine")
-    col1, col2 = st.columns(2)
-    with col1:
-        kw = st.text_input("Act/Statute (e.g., AMLA, WC)", "AMLA")
-        sec = st.text_input("Section (e.g., 52, 52(8))", "")
-        if kw or sec:
-            results = search_legislation(df, kw, sec)
-            st.write(results if results else "No matches found.")
-            
-    with col2:
-        v = st.text_input("Quranic Ref (e.g., 2 or 2:236)", "")
-        if v:
-            q_results = search_quranic(df, v)
-            st.write(q_results if q_results else "No matches found.")
 else:
-    st.info("No database loaded. Please upload PDFs.")
+    st.info("No database loaded. Please upload PDFs to begin.")
 
 st.markdown("""
 ---
@@ -352,9 +307,7 @@ Perplexity AI was used for code generation, further refined through additional p
 **Disclaimer:** This tool is provided for academic and exploratory purposes only.  
 It does **not** replace reading primary legal sources, and should **not** be considered authoritative legal advice or relied upon for any official or professional matter.
 
-Case Topic Groupings are based on arbitrarily-set catchwords, and may be prone to under/over-counting. See my GitHub page for the full code.
-
-Legislation and Quranic verse searches are more objective, based on a fixed citation format, and are potentially more reliable.
+Legislation and Quranic verse searches are objective, based on a fixed citation format, and are intended to assist in rapid cross-referencing.
 
 Feel free to use, fork, or improve this tool!
 
