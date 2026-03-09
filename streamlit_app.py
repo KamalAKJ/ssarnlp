@@ -99,7 +99,7 @@ def assign_topic_groups(headnotes):
                 assigned.add(group)
     return sorted(assigned) if assigned else ["Other"]
 
-# [UPGRADED] Legislation Extraction
+# [ENHANCED] Advanced Legislation Extraction
 def extract_legislation_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(
@@ -108,27 +108,28 @@ def extract_legislation_block(text):
         ])
     acts = []
     for line in block_lines:
-        # Isolate the Act name from the list of comma-separated sections
+        # Detect where the section list starts (e.g., "ss ", "s ", "section ")
         match = re.search(r'\b(?:s|ss|section|r|rule|cap)s?\b\s*(.*)', line, re.IGNORECASE)
         
         if match:
             act_part = line[:match.start()].strip()
             sections_part = match.group(1).strip()
             
-            # Clean up trailing years / descriptors from the Act name
+            # Extract Act name, ignoring specific version years for grouping
             act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part)
             stat = act_name_match.group(1).strip() if act_name_match else act_part
             
-            # Split the comma-separated sections
-            sections = [sect.strip() for sect in re.split(r',', sections_part) if sect.strip()]
+            # Split sections by commas or "and"
+            sections = [sect.strip() for sect in re.split(r',|and', sections_part) if sect.strip()]
             
             for name in add_short_forms(stat):
                 for sect in sections:
-                    # Strip all internal spaces so "35 (2) (e)" strictly becomes "35(2)(e)"
+                    # Remove all internal whitespace from sections for indexing
                     clean_sect = re.sub(r'\s+', '', sect)
-                    acts.append(f"{name} s {clean_sect}")
+                    if clean_sect:
+                        acts.append(f"{name} s {clean_sect}")
         else:
-            # Fallback if no specific section is mentioned
+            # Fallback if the line just lists an Act without sections
             act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", line)
             stat = act_name_match.group(1).strip() if act_name_match else line.strip()
             for name in add_short_forms(stat):
@@ -136,7 +137,7 @@ def extract_legislation_block(text):
                 
     return sorted(set(acts))
 
-# [UPGRADED] Quranic Extraction
+# [ENHANCED] Advanced Quranic Extraction
 def extract_quranic_verses_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(
@@ -145,6 +146,7 @@ def extract_quranic_verses_block(text):
         ])
     verses = []
     for l in block_lines:
+        # Standard format: Surah X, Name, verse Y
         surah_match = re.search(r'Surah\s*(\d+)', l, re.IGNORECASE)
         if surah_match:
             surah_num = surah_match.group(1)
@@ -152,24 +154,25 @@ def extract_quranic_verses_block(text):
             
             if verse_match:
                 verse_part = verse_match.group(1)
-                for frag in verse_part.split(','):
-                    frag = frag.strip()
-                    frag_clean = re.sub(r'[^\d\-\–]', '', frag)
+                # Handle lists and ranges
+                for frag in re.split(r',|and', verse_part):
+                    frag_clean = re.sub(r'[^\d\-\–]', '', frag.strip())
                     if not frag_clean: continue
                     
                     if re.search(r'\d+[–-]\d+', frag_clean):
                         parts = re.split(r'[–-]', frag_clean)
-                        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                        if len(parts) == 2:
                             verses += [f"{surah_num}:{v}" for v in range(int(parts[0]), int(parts[1])+1)]
                     elif frag_clean.isdigit():
                         verses.append(f"{surah_num}:{frag_clean}")
             else:
-                # Fallback for "Surah X:Y" format
+                # Handle "Surah X:Y" format
                 sv_short = re.findall(r'Surah\s*(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
                 for s, v in sv_short:
                     verses.append(f"{s}:{v}")
         else:
-            sv_short = re.findall(r'(?:Surah\s*)?(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
+            # Handle plain "X:Y" digit format
+            sv_short = re.findall(r'(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
             for s, v in sv_short:
                 verses.append(f"{s}:{v}")
                 
@@ -179,7 +182,6 @@ def extract_quranic_verses_block(text):
 
 def normalize(s): return re.sub(r'[\s\(\)\[\]\.,:\-]', '', str(s).lower())
 
-# [UPGRADED] Search Legislation 
 def search_legislation(df, act_keyword, section_query):
     if df.empty: return []
     
@@ -187,52 +189,34 @@ def search_legislation(df, act_keyword, section_query):
     section_clean = re.sub(r'\s+', '', str(section_query))
     
     if not section_clean:
-        # Search by Act keyword only if section isn't specified
         def is_match_act(leg_list):
-            if not isinstance(leg_list, list): return False
-            for leg in leg_list:
-                if act_kw_norm in normalize(leg): return True
-            return False
+            return any(act_kw_norm in normalize(leg) for leg in leg_list) if isinstance(leg_list, list) else False
         mask = df["Legislation referred"].apply(is_match_act)
         return sorted(df.loc[mask, "Case Name"].unique())
         
     escaped_sec = re.escape(section_clean)
-    
-    # Matches the exact section and its sub-sections (e.g. 52 matches 52(8)), 
-    # but strictly prevents 52 from matching 520 or 52A.
+    # Regex: Match "s [Section]" specifically, allowing subsections but blocking digit overflows
     pattern = re.compile(rf'\bs\s*{escaped_sec}(?!\d|[a-zA-Z])', re.IGNORECASE)
 
     def is_match(leg_list):
         if not isinstance(leg_list, list): return False
-        for leg in leg_list:
-            if act_kw_norm in normalize(leg) and pattern.search(leg):
-                return True
-        return False
+        return any(act_kw_norm in normalize(leg) and pattern.search(leg) for leg in leg_list)
 
     mask = df["Legislation referred"].apply(is_match)
     return sorted(df.loc[mask, "Case Name"].unique())
 
-# [UPGRADED] Search Quran
 def search_quranic(df, verse_query):
     if df.empty: return []
-    
     nums = re.findall(r'\d+', str(verse_query))
     
     def is_match(q_list):
         if not isinstance(q_list, list): return False
         for v in q_list:
-            v_nums = v.split(':')
-            
-            if len(nums) == 1:
-                # User only searched for Surah (e.g., "2")
-                if v_nums[0] == nums[0]: return True
-            elif len(nums) >= 2:
-                # User searched for Surah and Verse (e.g., "2:236")
-                if v_nums[0] == nums[0] and v_nums[1] == nums[1]: return True
-            else:
-                # Text match fallback
-                if normalize(verse_query) in normalize(v): return True
-                
+            v_parts = v.split(':')
+            if len(nums) == 1 and v_parts[0] == nums[0]: # Surah only search
+                return True
+            if len(nums) >= 2 and v_parts[0] == nums[0] and v_parts[1] == nums[1]: # Exact Verse
+                return True
         return False
 
     mask = df["Quranic verse(s) referred"].apply(is_match)
@@ -273,42 +257,41 @@ with st.expander("Database Management"):
 
 with st.expander("Upload PDFs", expanded=(df is None)):
     uploaded_files = st.file_uploader("Upload PDFs", type=["pdf"], accept_multiple_files=True)
+    
     if uploaded_files:
-        records = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for idx, upl in enumerate(uploaded_files):
-            status_text.text(f"Processing {upl.name}...")
-            try:
-                with pdfplumber.open(upl) as pdf:
-                    text = "\n".join([page.extract_text() or "" for page in pdf.pages])
-                
-                headnotes = extract_headnotes(text)
-                case_data = {
-                    "Case Name": extract_case_name_first_block(text, upl.name),
-                    "Year": extract_year(text),
-                    "Issues (headnotes)": headnotes,
-                    "Topic Groups": assign_topic_groups(headnotes),
-                    "Legislation referred": extract_legislation_block(text),
-                    "Quranic verse(s) referred": extract_quranic_verses_block(text),
-                }
-                records.append(case_data)
-            except Exception as e:
-                st.warning(f"Failed to process {upl.name}: {e}")
-                
-            progress_bar.progress(int(100 * (idx+1)/len(uploaded_files)))
+        # Added a button to prevent infinite loops and stop the app from 
+        # re-parsing PDFs every time you type in the search bar.
+        if st.button("Process Uploaded Files"): 
+            records = []
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-        status_text.text("Done processing.")
-        
-        if records:
-            save_df(pd.DataFrame(records))
-            st.session_state.df = load_df_cached(os.path.getmtime(DATA_PATH))
-            df = st.session_state.df
-            st.success(f"Processed and saved {len(df)} cases.")
-            st.rerun()
-        else:
-            st.error("No valid cases were processed.")
+            for idx, upl in enumerate(uploaded_files):
+                status_text.text(f"Processing {upl.name}...")
+                try:
+                    with pdfplumber.open(upl) as pdf:
+                        text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+                    
+                    hnotes = extract_headnotes(text)
+                    records.append({
+                        "Case Name": extract_case_name_first_block(text, upl.name),
+                        "Year": extract_year(text),
+                        "Issues (headnotes)": hnotes,
+                        "Topic Groups": assign_topic_groups(hnotes),
+                        "Legislation referred": extract_legislation_block(text),
+                        "Quranic verse(s) referred": extract_quranic_verses_block(text),
+                    })
+                except Exception as e:
+                    st.warning(f"Error in {upl.name}: {e}")
+                progress_bar.progress(int(100 * (idx+1)/len(uploaded_files)))
+                
+            status_text.text("Done processing.")
+            
+            if records:
+                save_df(pd.DataFrame(records))
+                st.session_state.df = load_df_cached(os.path.getmtime(DATA_PATH))
+                df = st.session_state.df
+                st.success(f"Processed and saved {len(df)} cases. You can now use the search engine below!")
 
 if df is not None and not df.empty:
     if st.checkbox("Show full database table"):
@@ -323,50 +306,41 @@ if df is not None and not df.empty:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     
-    # ---------- VISUALS ----------
+    # --- VISUALS ---
+    st.subheader("📊 Trends & Analytics")
     cntdata = df.explode("Topic Groups").groupby(["Year", "Topic Groups"]).size().reset_index(name="count")
-    cntdata["Year"] = pd.to_numeric(cntdata["Year"], errors="coerce")
     cntdata = cntdata.dropna(subset=["Year"])
     cntdata["Year"] = cntdata["Year"].astype(int).astype(str)
     
     if not cntdata.empty:
-        st.subheader("📊 Yearly Topic Group Trends: Number of Cases")
         fig1, ax1 = plt.subplots(figsize=(10, 6))
         sns.lineplot(data=cntdata, x="Year", y="count", hue="Topic Groups", marker="o", ax=ax1)
+        ax1.set_title("Yearly Case Volume by Topic")
         st.pyplot(fig1)
-    
-        st.subheader("📊 Yearly Topic Group Trends: Proportion of Cases")
-        prop_data = cntdata.copy()
-        totals = prop_data.groupby("Year")["count"].transform("sum")
-        prop_data["proportion"] = prop_data["count"] / totals
-        
-        fig2, ax2 = plt.subplots(figsize=(10, 6))
-        sns.lineplot(data=prop_data, x="Year", y="proportion", hue="Topic Groups", marker="o", ax=ax2)
-        st.pyplot(fig2)
 
     all_topics = [t for sublist in df["Topic Groups"] for t in sublist]
     if all_topics:
         topic_df = pd.DataFrame(all_topics, columns=["Topic"])
-        st.subheader("📊 Topic Group Distribution")
-        fig3, ax3 = plt.subplots(figsize=(10, 6))
-        sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax3)
-        st.pyplot(fig3)
+        fig2, ax2 = plt.subplots(figsize=(10, 6))
+        sns.countplot(data=topic_df, y="Topic", order=topic_df["Topic"].value_counts().index, ax=ax2)
+        ax2.set_title("Overall Topic Distribution")
+        st.pyplot(fig2)
 
-    # ---------- SEARCH BAR ----------
-    st.subheader("🔍 Search Cases")
+    # --- SEARCH ---
+    st.subheader("🔍 Search Engine")
     col1, col2 = st.columns(2)
     with col1:
-        keywords = st.text_input("Act name/short form", "AMLA")
-        section = st.text_input("Section (e.g. 52, 52(8))", "")
-        if keywords or section:
-            results = search_legislation(df, keywords, section)
+        kw = st.text_input("Act/Statute (e.g., AMLA, WC)", "AMLA")
+        sec = st.text_input("Section (e.g., 52, 52(8))", "")
+        if kw or sec:
+            results = search_legislation(df, kw, sec)
             st.write(results if results else "No matches found.")
             
     with col2:
-        verse = st.text_input("Quranic Verse (Surah:Verse)", "")
-        if verse:
-            quranic_results = search_quranic(df, verse)
-            st.write(quranic_results if quranic_results else "No matches found.")
+        v = st.text_input("Quranic Ref (e.g., 2 or 2:236)", "")
+        if v:
+            q_results = search_quranic(df, v)
+            st.write(q_results if q_results else "No matches found.")
 else:
     st.info("No database loaded. Please upload PDFs.")
 
