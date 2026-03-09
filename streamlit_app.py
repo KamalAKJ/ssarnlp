@@ -20,10 +20,13 @@ import os
 SHORTFORM_MAP = {
     "Administration of Muslim Law Act": "AMLA",
     "Women’s Charter": "WC",
-    "Women's Charter": "WC"
+    "Women's Charter": "WC",
+    "Women`s Charter": "WC",
+    "Muslim Marriage and Divorce Rules": "MMDR"
 }
 
-DATA_PATH = "ssar_lite_data_final.pkl" 
+# Version 8 of the database to ensure a clean wipe from the previous data
+DATA_PATH = "ssar_lite_data_v8.pkl" 
 
 # Comprehensive stop markers to cleanly close the list extraction
 STOP_PATTERNS = [
@@ -73,26 +76,29 @@ def extract_year(text):
     years = re.findall(r"(20\d{2}|19\d{2})", text)
     return int(years[0]) if years else None
 
-# [UPGRADED] Stateful Legislation Extractor handles multi-line section lists
 def extract_legislation_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(lines, r'^Legislation referred to', STOP_PATTERNS)
     acts = []
-    current_act = None # Memory State
+    current_act = None 
+    current_prefix = 's' 
     
     for line in block_lines:
         clean_line = re.sub(r'\([^)]*(?:Cap|Rev\s*Ed|Act|Ordinance|19\d\d|20\d\d)[^)]*\)', '', line, flags=re.IGNORECASE)
-        match = re.search(r'\b(s|ss|section|r|rule|rr)\b\s*(.*)', clean_line, re.IGNORECASE)
+        
+        match = re.search(r"(?<!['’`])\b(s|ss|section|r|rule|rr)\b\s*(.*)", clean_line, re.IGNORECASE)
         
         if match:
             act_part = clean_line[:match.start()].strip()
             
-            # If the line contains an act name, update the memory
+            indicator = match.group(1).lower()
+            current_prefix = 'r' if indicator.startswith('r') else 's'
+            sections_part = match.group(2).strip()
+            
             if act_part:
                 act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part, re.IGNORECASE)
                 current_act = act_name_match.group(1).strip() if act_name_match else act_part
             
-            sections_part = match.group(2).strip()
             sections = [sect.strip() for sect in re.split(r',|and', sections_part) if sect.strip()]
             
             if current_act:
@@ -100,32 +106,30 @@ def extract_legislation_block(text):
                     for sect in sections:
                         clean_sect = re.sub(r'\s+', '', sect)
                         if clean_sect:
-                            acts.append(f"{name} s {clean_sect}")
+                            acts.append(f"{name} {current_prefix} {clean_sect}")
         else:
-            # Check if line is a pure Act name without sections
             act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", clean_line, re.IGNORECASE)
             if act_name_match:
                 current_act = act_name_match.group(1).strip()
+                current_prefix = 'r' if 'rules' in current_act.lower() else 's'
                 for name in add_short_forms(current_act):
                     acts.append(name)
             else:
-                # If no Act name and no "s" / "ss", it is a continuation of the previous line!
                 if current_act:
                     sections = [sect.strip() for sect in re.split(r',|and', clean_line) if sect.strip()]
                     for name in add_short_forms(current_act):
                         for sect in sections:
                             clean_sect = re.sub(r'\s+', '', sect)
                             if clean_sect:
-                                acts.append(f"{name} s {clean_sect}")
+                                acts.append(f"{name} {current_prefix} {clean_sect}")
                 
     return sorted(set(acts))
 
-# [UPGRADED] Stateful Quranic Extractor handles multi-line verse lists
 def extract_quranic_verses_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(lines, r'^Quranic verse\(s\) referred to', STOP_PATTERNS)
     verses = []
-    current_surah = None # Memory State
+    current_surah = None 
     
     for l in block_lines:
         surah_match = re.search(r'Surah\s*(\d+)', l, re.IGNORECASE)
@@ -157,7 +161,6 @@ def extract_quranic_verses_block(text):
                     if 1 <= int(s) <= 114:
                         verses.append(f"{s}:{v}")
             elif current_surah:
-                # Continuation line for verses (e.g., hanging "13, 14, 15")
                 for frag in re.split(r',|and', l):
                     frag_clean = re.sub(r'[^\d\-\–]', '', frag.strip())
                     if not frag_clean: continue
@@ -188,7 +191,7 @@ def search_legislation(df, act_keyword, section_query):
         return sorted(df.loc[mask, "Case Name"].unique())
         
     escaped_sec = re.escape(section_clean)
-    pattern = re.compile(rf'\bs\s*{escaped_sec}(?!\d|[a-zA-Z])', re.IGNORECASE)
+    pattern = re.compile(rf'\b(?:s|r)\s*{escaped_sec}(?!\d|[a-zA-Z])', re.IGNORECASE)
 
     def is_match(leg_list):
         if not isinstance(leg_list, list): return False
@@ -260,7 +263,6 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                 status_text.text(f"Processing {upl.name}...")
                 try:
                     with pdfplumber.open(upl) as pdf:
-                        # SAFEGUARD: Extract text from the first THREE pages to ensure long headnotes aren't cut off
                         pages_to_extract = pdf.pages[:3]
                         text = "\n".join([page.extract_text() or "" for page in pages_to_extract])
                     
@@ -289,8 +291,8 @@ if df is not None and not df.empty:
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### Legislation Search")
-        kw = st.text_input("Act/Statute (e.g., AMLA, WC)", "AMLA")
-        sec = st.text_input("Section (e.g., 52, 52(8))", "")
+        kw = st.text_input("Act/Statute (e.g., AMLA, WC, MMDR)", "AMLA")
+        sec = st.text_input("Section/Rule (e.g., 52, 14(1))", "")
         if kw or sec:
             results = search_legislation(df, kw, sec)
             if results:
