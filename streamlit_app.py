@@ -23,14 +23,21 @@ SHORTFORM_MAP = {
     "Women's Charter": "WC"
 }
 
-# Changed the database name slightly to avoid loading your older, heavier database file by mistake
-DATA_PATH = "ssar_lite_data.pkl" 
+DATA_PATH = "ssar_lite_data_v3.pkl" 
+
+# Comprehensive stop markers to cleanly close the list extraction
+STOP_PATTERNS = [
+    r'^Quranic verse', r'^Cases? referred to', r'^Issues?', r'^Background', 
+    r'^At the Syariah Court', r'^At the Appeal Board', r'^Introduction', 
+    r'^Judgment', r'^Parties', r'^Defendant', r'^Plaintiff', r'^Conclusion', 
+    r'^ORDER OF', r'^\[Editorial note'
+]
 
 # ---------- EXTRACTION HELPERS ----------
 
 def extract_header_window(lines, start_pattern, stop_patterns):
     block, in_block = [], False
-    for line in lines:
+    for line in lines: 
         if in_block:
             if any(re.search(p, line, re.IGNORECASE) for p in stop_patterns) or not line.strip():
                 break
@@ -50,20 +57,15 @@ def extract_case_name_first_block(text, filename):
     lines = [l.strip() for l in text.split('\n') if l.strip()]
     
     for line in lines[:15]:
-        # KILL SWITCH: Stop scanning if we reach the citations section
         if re.match(r"^case\(s\)\s+referred\s+to", line, re.IGNORECASE):
             break
-            
-        # STRICT REGEX: Only match standard initialed case names (e.g., "FS v FT")
         if re.match(r"^[A-Z]{2,}\s+v\s+[A-Z]{2,}$", line):
             return line
         if re.match(r"^Re\s+[A-Z]{2,}$", line, re.IGNORECASE):
             return line
 
-    # FALLBACK: Sanitize the highly-accurate uploaded filename
     clean_name = os.path.basename(filename)
     clean_name = os.path.splitext(clean_name)[0]
-    # Remove any leading directory paths (e.g., "9 SSAR/")
     clean_name = re.sub(r'^\d+\s*SSAR[\\/]', '', clean_name)
     return clean_name.strip()
 
@@ -71,14 +73,11 @@ def extract_year(text):
     years = re.findall(r"(20\d{2}|19\d{2})", text)
     return int(years[0]) if years else None
 
-# [ENHANCED] Advanced Legislation Extraction
 def extract_legislation_block(text):
     lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Legislation referred to', [
-            r'^Quranic verse', r'^Cases? referred to', r'^Issues?', r'^Background'
-        ])
+    block_lines = extract_header_window(lines, r'^Legislation referred to', STOP_PATTERNS)
     acts = []
+    
     for line in block_lines:
         match = re.search(r'\b(?:s|ss|section|r|rule|cap)s?\b\s*(.*)', line, re.IGNORECASE)
         
@@ -86,7 +85,7 @@ def extract_legislation_block(text):
             act_part = line[:match.start()].strip()
             sections_part = match.group(1).strip()
             
-            act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part)
+            act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part, re.IGNORECASE)
             stat = act_name_match.group(1).strip() if act_name_match else act_part
             
             sections = [sect.strip() for sect in re.split(r',|and', sections_part) if sect.strip()]
@@ -97,21 +96,19 @@ def extract_legislation_block(text):
                     if clean_sect:
                         acts.append(f"{name} s {clean_sect}")
         else:
-            act_name_match = re.match(r"^(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", line)
-            stat = act_name_match.group(1).strip() if act_name_match else line.strip()
-            for name in add_short_forms(stat):
-                acts.append(name)
+            act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", line, re.IGNORECASE)
+            if act_name_match:
+                stat = act_name_match.group(1).strip()
+                for name in add_short_forms(stat):
+                    acts.append(name)
                 
     return sorted(set(acts))
 
-# [ENHANCED] Advanced Quranic Extraction
 def extract_quranic_verses_block(text):
     lines = text.split('\n')
-    block_lines = extract_header_window(
-        lines, r'^Quranic verse\(s\) referred to', [
-            r'^Legislation referred to', r'^Cases? referred to', r'^Issues?', r'^Background', r'^At the'
-        ])
+    block_lines = extract_header_window(lines, r'^Quranic verse\(s\) referred to', STOP_PATTERNS)
     verses = []
+    
     for l in block_lines:
         surah_match = re.search(r'Surah\s*(\d+)', l, re.IGNORECASE)
         if surah_match:
@@ -133,11 +130,13 @@ def extract_quranic_verses_block(text):
             else:
                 sv_short = re.findall(r'Surah\s*(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
                 for s, v in sv_short:
-                    verses.append(f"{s}:{v}")
+                    if 1 <= int(s) <= 114: 
+                        verses.append(f"{s}:{v}")
         else:
-            sv_short = re.findall(r'(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
+            sv_short = re.findall(r'\b(\d{1,3})\s*[:]\s*(\d+)\b', l, re.IGNORECASE)
             for s, v in sv_short:
-                verses.append(f"{s}:{v}")
+                if 1 <= int(s) <= 114:
+                    verses.append(f"{s}:{v}")
                 
     return sorted(set(verses))
 
@@ -230,7 +229,9 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                 status_text.text(f"Processing {upl.name}...")
                 try:
                     with pdfplumber.open(upl) as pdf:
-                        text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+                        # THE CRITICAL FIX: Only extract text from the first two pages where headnotes live
+                        pages_to_extract = pdf.pages[:2]
+                        text = "\n".join([page.extract_text() or "" for page in pages_to_extract])
                     
                     records.append({
                         "Case Name": extract_case_name_first_block(text, upl.name),
