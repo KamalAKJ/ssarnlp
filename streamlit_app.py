@@ -73,49 +73,64 @@ def extract_year(text):
     years = re.findall(r"(20\d{2}|19\d{2})", text)
     return int(years[0]) if years else None
 
+# [UPGRADED] Stateful Legislation Extractor handles multi-line section lists
 def extract_legislation_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(lines, r'^Legislation referred to', STOP_PATTERNS)
     acts = []
+    current_act = None # Memory State
     
     for line in block_lines:
-        # Scrub out (Cap xxx, YYYY Rev Ed) style parentheticals but leave s 52(6) alone
         clean_line = re.sub(r'\([^)]*(?:Cap|Rev\s*Ed|Act|Ordinance|19\d\d|20\d\d)[^)]*\)', '', line, flags=re.IGNORECASE)
-        
         match = re.search(r'\b(s|ss|section|r|rule|rr)\b\s*(.*)', clean_line, re.IGNORECASE)
         
         if match:
             act_part = clean_line[:match.start()].strip()
+            
+            # If the line contains an act name, update the memory
+            if act_part:
+                act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part, re.IGNORECASE)
+                current_act = act_name_match.group(1).strip() if act_name_match else act_part
+            
             sections_part = match.group(2).strip()
-            
-            act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part, re.IGNORECASE)
-            stat = act_name_match.group(1).strip() if act_name_match else act_part
-            
             sections = [sect.strip() for sect in re.split(r',|and', sections_part) if sect.strip()]
             
-            for name in add_short_forms(stat):
-                for sect in sections:
-                    clean_sect = re.sub(r'\s+', '', sect)
-                    if clean_sect:
-                        acts.append(f"{name} s {clean_sect}")
+            if current_act:
+                for name in add_short_forms(current_act):
+                    for sect in sections:
+                        clean_sect = re.sub(r'\s+', '', sect)
+                        if clean_sect:
+                            acts.append(f"{name} s {clean_sect}")
         else:
+            # Check if line is a pure Act name without sections
             act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", clean_line, re.IGNORECASE)
             if act_name_match:
-                stat = act_name_match.group(1).strip()
-                for name in add_short_forms(stat):
+                current_act = act_name_match.group(1).strip()
+                for name in add_short_forms(current_act):
                     acts.append(name)
+            else:
+                # If no Act name and no "s" / "ss", it is a continuation of the previous line!
+                if current_act:
+                    sections = [sect.strip() for sect in re.split(r',|and', clean_line) if sect.strip()]
+                    for name in add_short_forms(current_act):
+                        for sect in sections:
+                            clean_sect = re.sub(r'\s+', '', sect)
+                            if clean_sect:
+                                acts.append(f"{name} s {clean_sect}")
                 
     return sorted(set(acts))
 
+# [UPGRADED] Stateful Quranic Extractor handles multi-line verse lists
 def extract_quranic_verses_block(text):
     lines = text.split('\n')
     block_lines = extract_header_window(lines, r'^Quranic verse\(s\) referred to', STOP_PATTERNS)
     verses = []
+    current_surah = None # Memory State
     
     for l in block_lines:
         surah_match = re.search(r'Surah\s*(\d+)', l, re.IGNORECASE)
         if surah_match:
-            surah_num = surah_match.group(1)
+            current_surah = surah_match.group(1)
             verse_match = re.search(r'verse[s]?\s*(.*)', l, re.IGNORECASE)
             
             if verse_match:
@@ -127,9 +142,9 @@ def extract_quranic_verses_block(text):
                     if re.search(r'\d+[–-]\d+', frag_clean):
                         parts = re.split(r'[–-]', frag_clean)
                         if len(parts) == 2:
-                            verses += [f"{surah_num}:{v}" for v in range(int(parts[0]), int(parts[1])+1)]
+                            verses += [f"{current_surah}:{v}" for v in range(int(parts[0]), int(parts[1])+1)]
                     elif frag_clean.isdigit():
-                        verses.append(f"{surah_num}:{frag_clean}")
+                        verses.append(f"{current_surah}:{frag_clean}")
             else:
                 sv_short = re.findall(r'Surah\s*(\d+)\s*[:]\s*(\d+)', l, re.IGNORECASE)
                 for s, v in sv_short:
@@ -137,9 +152,22 @@ def extract_quranic_verses_block(text):
                         verses.append(f"{s}:{v}")
         else:
             sv_short = re.findall(r'\b(\d{1,3})\s*[:]\s*(\d+)\b', l, re.IGNORECASE)
-            for s, v in sv_short:
-                if 1 <= int(s) <= 114:
-                    verses.append(f"{s}:{v}")
+            if sv_short:
+                for s, v in sv_short:
+                    if 1 <= int(s) <= 114:
+                        verses.append(f"{s}:{v}")
+            elif current_surah:
+                # Continuation line for verses (e.g., hanging "13, 14, 15")
+                for frag in re.split(r',|and', l):
+                    frag_clean = re.sub(r'[^\d\-\–]', '', frag.strip())
+                    if not frag_clean: continue
+                    
+                    if re.search(r'\d+[–-]\d+', frag_clean):
+                        parts = re.split(r'[–-]', frag_clean)
+                        if len(parts) == 2:
+                            verses += [f"{current_surah}:{v}" for v in range(int(parts[0]), int(parts[1])+1)]
+                    elif frag_clean.isdigit():
+                        verses.append(f"{current_surah}:{frag_clean}")
                 
     return sorted(set(verses))
 
