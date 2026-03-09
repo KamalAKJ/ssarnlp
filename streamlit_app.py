@@ -23,7 +23,7 @@ SHORTFORM_MAP = {
     "Women's Charter": "WC"
 }
 
-DATA_PATH = "ssar_lite_data_v3.pkl" 
+DATA_PATH = "ssar_lite_data_final.pkl" 
 
 # Comprehensive stop markers to cleanly close the list extraction
 STOP_PATTERNS = [
@@ -79,11 +79,14 @@ def extract_legislation_block(text):
     acts = []
     
     for line in block_lines:
-        match = re.search(r'\b(?:s|ss|section|r|rule|cap)s?\b\s*(.*)', line, re.IGNORECASE)
+        # Scrub out (Cap xxx, YYYY Rev Ed) style parentheticals but leave s 52(6) alone
+        clean_line = re.sub(r'\([^)]*(?:Cap|Rev\s*Ed|Act|Ordinance|19\d\d|20\d\d)[^)]*\)', '', line, flags=re.IGNORECASE)
+        
+        match = re.search(r'\b(s|ss|section|r|rule|rr)\b\s*(.*)', clean_line, re.IGNORECASE)
         
         if match:
-            act_part = line[:match.start()].strip()
-            sections_part = match.group(1).strip()
+            act_part = clean_line[:match.start()].strip()
+            sections_part = match.group(2).strip()
             
             act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", act_part, re.IGNORECASE)
             stat = act_name_match.group(1).strip() if act_name_match else act_part
@@ -96,7 +99,7 @@ def extract_legislation_block(text):
                     if clean_sect:
                         acts.append(f"{name} s {clean_sect}")
         else:
-            act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", line, re.IGNORECASE)
+            act_name_match = re.search(r"(.*?\b(?:Act|Charter|Rules|Ordinance)\b)", clean_line, re.IGNORECASE)
             if act_name_match:
                 stat = act_name_match.group(1).strip()
                 for name in add_short_forms(stat):
@@ -229,8 +232,8 @@ with st.expander("Upload PDFs", expanded=(df is None)):
                 status_text.text(f"Processing {upl.name}...")
                 try:
                     with pdfplumber.open(upl) as pdf:
-                        # THE CRITICAL FIX: Only extract text from the first two pages where headnotes live
-                        pages_to_extract = pdf.pages[:2]
+                        # SAFEGUARD: Extract text from the first THREE pages to ensure long headnotes aren't cut off
+                        pages_to_extract = pdf.pages[:3]
                         text = "\n".join([page.extract_text() or "" for page in pages_to_extract])
                     
                     records.append({
